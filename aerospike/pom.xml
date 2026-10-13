@@ -32,7 +32,7 @@ LICENSE file.
   <dependencies>
     <dependency>
       <groupId>com.aerospike</groupId>
-      <artifactId>aerospike-client</artifactId>
+      <artifactId>aerospike-client-jdk8</artifactId>
       <version>${aerospike.version}</version>
     </dependency>
     <dependency>
@@ -40,6 +40,12 @@ LICENSE file.
       <artifactId>core</artifactId>
       <version>${project.version}</version>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testng</groupId>
+      <artifactId>testng</artifactId>
+      <version>6.1.1</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 </project>

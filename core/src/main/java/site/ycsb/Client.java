@@ -117,6 +117,13 @@ public final class Client {
    */
   public static final String THREAD_COUNT_PROPERTY = "threadcount";
 
+  /** Defines whether a finite operation count is split per thread or allocated globally. */
+  public static final String WORK_ALLOCATION_PROPERTY = "workallocation";
+  public static final String WORK_ALLOCATION_GLOBAL = "global";
+  public static final String WORK_ALLOCATION_THREAD = "thread";
+  public static final String WORK_ALLOCATION_BLOCK_SIZE_PROPERTY = "workallocationblocksize";
+  public static final int WORK_ALLOCATION_BLOCK_SIZE_DEFAULT = 256;
+
   /**
    * Indicates how many inserts to do if less than recordcount.
    * Useful for partitioning the load among multiple servers if the client is the bottleneck.
@@ -211,7 +218,7 @@ public final class Client {
    *
    * @throws IOException Either failed to write to output stream or failed to close it.
    */
-  private static void exportMeasurements(Properties props, int opcount, long runtime)
+  private static void exportMeasurements(Properties props, long opcount, long runtime)
       throws IOException {
     MeasurementsExporter exporter = null;
     try {
@@ -327,7 +334,7 @@ public final class Client {
     Thread terminator = null;
     long st;
     long en;
-    int opsDone;
+    long opsDone;
 
     try (final TraceScope span = tracer.newScope(CLIENT_WORKLOAD_SPAN)) {
 
@@ -400,28 +407,36 @@ public final class Client {
     System.exit(0);
   }
 
-  private static List<ClientThread> initDb(String dbname, Properties props, int threadcount,
+  private static List<ClientThread> initDb(String dbname, Properties props, long threadcount,
                                            double targetperthreadperms, Workload workload, Tracer tracer,
                                            CountDownLatch completeLatch) {
     boolean initFailed = false;
     boolean dotransactions = Boolean.valueOf(props.getProperty(DO_TRANSACTIONS_PROPERTY, String.valueOf(true)));
 
-    final List<ClientThread> clients = new ArrayList<>(threadcount);
+    final List<ClientThread> clients = new ArrayList<>((int)threadcount);
     try (final TraceScope span = tracer.newScope(CLIENT_INIT_SPAN)) {
-      int opcount;
+      long opcount;
       if (dotransactions) {
-        opcount = Integer.parseInt(props.getProperty(OPERATION_COUNT_PROPERTY, "0"));
+        opcount = Long.parseLong(props.getProperty(OPERATION_COUNT_PROPERTY, "0"));
       } else {
         if (props.containsKey(INSERT_COUNT_PROPERTY)) {
-          opcount = Integer.parseInt(props.getProperty(INSERT_COUNT_PROPERTY, "0"));
+          opcount = Long.parseLong(props.getProperty(INSERT_COUNT_PROPERTY, "0"));
         } else {
-          opcount = Integer.parseInt(props.getProperty(RECORD_COUNT_PROPERTY, DEFAULT_RECORD_COUNT));
+          opcount = Long.parseLong(props.getProperty(RECORD_COUNT_PROPERTY, DEFAULT_RECORD_COUNT));
         }
       }
       if (threadcount > opcount && opcount > 0){
         threadcount = opcount;
         System.out.println("Warning: the threadcount is bigger than recordcount, the threadcount will be recordcount!");
       }
+      String allocationMode = props.getProperty(WORK_ALLOCATION_PROPERTY, WORK_ALLOCATION_GLOBAL);
+      if (!WORK_ALLOCATION_GLOBAL.equals(allocationMode) && !WORK_ALLOCATION_THREAD.equals(allocationMode)) {
+        throw new IllegalArgumentException("Unknown work allocation mode: " + allocationMode);
+      }
+      int allocationBlockSize = Integer.parseInt(props.getProperty(WORK_ALLOCATION_BLOCK_SIZE_PROPERTY,
+          String.valueOf(WORK_ALLOCATION_BLOCK_SIZE_DEFAULT)));
+      OperationAllocator allocator = WORK_ALLOCATION_GLOBAL.equals(allocationMode) && opcount > 0
+          ? new OperationAllocator(opcount, allocationBlockSize) : null;
       for (int threadid = 0; threadid < threadcount; threadid++) {
         DB db;
         try {
@@ -432,17 +447,18 @@ public final class Client {
           break;
         }
 
-        int threadopcount = opcount / threadcount;
+        long threadopcount = opcount / threadcount;
 
         // ensure correct number of operations, in case opcount is not a multiple of threadcount
         if (threadid < opcount % threadcount) {
           ++threadopcount;
         }
 
-        ClientThread t = new ClientThread(db, dotransactions, workload, props, threadopcount, targetperthreadperms,
+        ClientThread t = new ClientThread(db, dotransactions, workload, props, (int)threadopcount, targetperthreadperms,
             completeLatch);
         t.setThreadId(threadid);
-        t.setThreadCount(threadcount);
+        t.setThreadCount((int)threadcount);
+        t.setOperationAllocator(allocator, threadid == 0);
         clients.add(t);
       }
 

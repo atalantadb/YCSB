@@ -1,0 +1,7 @@
+workload=site.ycsb.workloads.CoreWorkload
+
+readallfields=true
+fieldcount=10
+fieldlength=50
+
+requestdistribution=uniform

@@ -34,10 +34,12 @@ public class ClientThread implements Runnable {
   private DB db;
   private boolean dotransactions;
   private Workload workload;
-  private int opcount;
+  private long opcount;
+  private OperationAllocator operationAllocator;
+  private boolean reportSharedOpsTodo;
   private double targetOpsPerMs;
 
-  private int opsdone;
+  private long opsdone;
   private int threadid;
   private int threadcount;
   private Object workloadstate;
@@ -56,7 +58,7 @@ public class ClientThread implements Runnable {
    * @param targetperthreadperms target number of operations per thread per ms
    * @param completeLatch        The latch tracking the completion of all clients.
    */
-  public ClientThread(DB db, boolean dotransactions, Workload workload, Properties props, int opcount,
+  public ClientThread(DB db, boolean dotransactions, Workload workload, Properties props, long opcount,
                       double targetperthreadperms, CountDownLatch completeLatch) {
     this.db = db;
     this.dotransactions = dotransactions;
@@ -81,7 +83,12 @@ public class ClientThread implements Runnable {
     threadcount = threadCount;
   }
 
-  public int getOpsDone() {
+  void setOperationAllocator(OperationAllocator allocator, boolean reportOpsTodo) {
+    operationAllocator = allocator;
+    reportSharedOpsTodo = reportOpsTodo;
+  }
+
+  public long getOpsDone() {
     return opsdone;
   }
 
@@ -114,31 +121,18 @@ public class ClientThread implements Runnable {
       sleepUntil(System.nanoTime() + randomMinorDelay);
     }
     try {
-      if (dotransactions) {
-        long startTimeNanos = System.nanoTime();
-
-        while (((opcount == 0) || (opsdone < opcount)) && !workload.isStopRequested()) {
-
-          if (!workload.doTransaction(db, workloadstate)) {
-            break;
-          }
-
-          opsdone++;
-
-          throttleNanos(startTimeNanos);
-        }
+      long startTimeNanos = System.nanoTime();
+      if (operationAllocator == null) {
+        executeOperations(opcount, startTimeNanos);
       } else {
-        long startTimeNanos = System.nanoTime();
-
-        while (((opcount == 0) || (opsdone < opcount)) && !workload.isStopRequested()) {
-
-          if (!workload.doInsert(db, workloadstate)) {
+        int claimed = operationAllocator.claim();
+        while (!workload.isStopRequested() && claimed > 0) {
+          int completed = executeOperations(claimed, startTimeNanos);
+          if (completed < claimed) {
+            operationAllocator.release(claimed - completed);
             break;
           }
-
-          opsdone++;
-
-          throttleNanos(startTimeNanos);
+          claimed = operationAllocator.claim();
         }
       }
     } catch (Exception e) {
@@ -156,6 +150,22 @@ public class ClientThread implements Runnable {
     } finally {
       completeLatch.countDown();
     }
+  }
+
+  private int executeOperations(long count, long startTimeNanos) throws WorkloadException {
+    int completed = 0;
+    while ((count == 0 || completed < count) && !workload.isStopRequested()) {
+      boolean success = dotransactions
+          ? workload.doTransaction(db, workloadstate)
+          : workload.doInsert(db, workloadstate);
+      if (!success) {
+        break;
+      }
+      completed++;
+      opsdone++;
+      throttleNanos(startTimeNanos);
+    }
+    return completed;
   }
 
   private static void sleepUntil(long deadline) {
@@ -179,8 +189,11 @@ public class ClientThread implements Runnable {
   /**
    * The total amount of work this thread is still expected to do.
    */
-  int getOpsTodo() {
-    int todo = opcount - opsdone;
+  long getOpsTodo() {
+    if (operationAllocator != null) {
+      return reportSharedOpsTodo ? operationAllocator.remaining() : 0;
+    }
+    long todo = opcount - opsdone;
     return todo < 0 ? 0 : todo;
   }
 }

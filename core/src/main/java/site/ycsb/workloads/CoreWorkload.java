@@ -127,6 +127,18 @@ public class CoreWorkload extends Workload {
    */
   public static final String MIN_FIELD_LENGTH_PROPERTY_DEFAULT = "1";
 
+  public static final String BATCH_SIZE = "batchsize";
+  public static final String BATCH_SIZE_DEFAULT = "1";
+
+  public static final String TABLE_REGION_COUNT = "regioncount";
+  public static final String TABLE_REGION_COUNT_DEFAULT = "256";
+
+
+  public static final String CONNECTION_NIO = "connection_nio";
+  public static final String CONNECTION_NIO_DEFAULT = "false";
+  public static final String TABLE_RECREATE = "tablerecreate";
+  public static final String TABLE_RECREATE_DEFAULT = "false";
+
   /**
    * The name of a property that specifies the filename containing the field length histogram (only
    * used if fieldlengthdistribution is "histogram").
@@ -363,6 +375,12 @@ public class CoreWorkload extends Workload {
    * Default value of the field name prefix.
    */
   public static final String FIELD_NAME_PREFIX_DEFAULT = "field";
+
+  /**
+   * The name of the property for the batch size.
+   */
+  public static final String BATCH_SIZE_PROPERTY = "batchsize";
+  public static final String BATCH_SIZE_PROPERTY_DEFAULT = "1";
 
   protected NumberGenerator keysequence;
   protected DiscreteGenerator operationchooser;
@@ -622,7 +640,7 @@ public class CoreWorkload extends Workload {
    */
   @Override
   public boolean doInsert(DB db, Object threadstate) {
-    int keynum = keysequence.nextValue().intValue();
+    long keynum = keysequence.nextValue().longValue();
     String dbkey = CoreWorkload.buildKeyName(keynum, zeropadding, orderedinserts);
     HashMap<String, ByteIterator> values = buildValues(dbkey);
 
@@ -720,11 +738,11 @@ public class CoreWorkload extends Workload {
     long keynum;
     if (keychooser instanceof ExponentialGenerator) {
       do {
-        keynum = transactioninsertkeysequence.lastValue() - keychooser.nextValue().intValue();
+        keynum = transactioninsertkeysequence.lastValue() - keychooser.nextValue().longValue();
       } while (keynum < 0);
     } else {
       do {
-        keynum = keychooser.nextValue().intValue();
+        keynum = keychooser.nextValue().longValue();
       } while (keynum > transactioninsertkeysequence.lastValue());
     }
     return keynum;
