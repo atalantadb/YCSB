@@ -23,3 +23,6 @@ output*
 # ignore standard Mac OS X files/dirs
 .DS_Store
 /differentbin/
+
+# Local Atalanta connection settings must not be committed or packaged.
+/bin/atalanta-site.xml

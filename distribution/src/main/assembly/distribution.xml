@@ -54,14 +54,6 @@ LICENSE file.
       <outputDirectory>workloads</outputDirectory>
       <fileMode>0644</fileMode>
     </fileSet>
-    <fileSet>
-      <directory>../bin</directory>
-      <outputDirectory>bin</outputDirectory>
-      <fileMode>0644</fileMode>
-      <includes>
-        <include>atalanta-site.xml</include>
-      </includes>
-    </fileSet>
   </fileSets>
   <dependencySets>
     <dependencySet>
